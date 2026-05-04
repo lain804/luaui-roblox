@@ -548,9 +548,14 @@ function Tab:Dropdown(args)
     end
 
     local selected = {}
+    local selectionOrder = {}
     for _, def in ipairs(default) do
         if table.find(options, def) then
-            selected[def] = true
+            if not selected[def] then
+                selected[def] = true
+                table.insert(selectionOrder, def)
+                if not multiSelect then break end
+            end
         end
     end
 
@@ -662,8 +667,14 @@ function Tab:Dropdown(args)
 
     local function getSelectedTable()
         local list = {}
-        for _, option in ipairs(options) do
+        for _, option in ipairs(selectionOrder) do
             if selected[option] then
+                table.insert(list, option)
+            end
+        end
+        -- fallback: include any selected items not in selectionOrder
+        for _, option in ipairs(options) do
+            if selected[option] and not table.find(list, option) then
                 table.insert(list, option)
             end
         end
@@ -703,14 +714,18 @@ function Tab:Dropdown(args)
 
     local function setSelected(value, noCallback)
         table.clear(selected)
+        table.clear(selectionOrder)
         local values = value
         if type(values) ~= "table" then
             values = { values }
         end
         for _, option in ipairs(values) do
             if table.find(options, option) then
-                selected[option] = true
-                if not multiSelect then break end
+                if not selected[option] then
+                    selected[option] = true
+                    table.insert(selectionOrder, option)
+                    if not multiSelect then break end
+                end
             end
         end
         updateDisplay(noCallback)
@@ -734,10 +749,24 @@ function Tab:Dropdown(args)
 
         optionButton.MouseButton1Click:Connect(function()
             if multiSelect then
-                selected[option] = not selected[option]
+                local wasSelected = not not selected[option]
+                if wasSelected then
+                    selected[option] = nil
+                    for idx, v in ipairs(selectionOrder) do
+                        if v == option then
+                            table.remove(selectionOrder, idx)
+                            break
+                        end
+                    end
+                else
+                    selected[option] = true
+                    table.insert(selectionOrder, option)
+                end
             else
                 table.clear(selected)
+                table.clear(selectionOrder)
                 selected[option] = true
+                table.insert(selectionOrder, option)
                 if closeDropdown then
                     closeDropdown()
                 else
