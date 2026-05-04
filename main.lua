@@ -910,6 +910,49 @@ function Tab:Dropdown(args)
     return controller
 end
 
+
+function UILibrary:_RefreshTabCanvas()
+    if not self.TabContainer or not self.TabLayout then return end
+
+    task.defer(function()
+        if not self.TabContainer or not self.TabLayout then return end
+
+        local contentWidth = self.TabLayout.AbsoluteContentSize.X + 2
+        self.TabContainer.CanvasSize = UDim2.new(0, contentWidth, 0, 0)
+    end)
+end
+
+function UILibrary:_ScrollTabIntoView(tab)
+    if not tab or not tab.button or not self.TabContainer then return end
+
+    task.defer(function()
+        if not tab.button or not tab.button.Parent or not self.TabContainer then return end
+
+        local container = self.TabContainer
+        local button = tab.button
+
+        local containerPos = container.AbsolutePosition
+        local containerSize = container.AbsoluteSize
+        local buttonPos = button.AbsolutePosition
+        local buttonSize = button.AbsoluteSize
+        local currentX = container.CanvasPosition.X
+
+        local leftOverflow = buttonPos.X - containerPos.X
+        local rightOverflow = (buttonPos.X + buttonSize.X) - (containerPos.X + containerSize.X)
+        local targetX = currentX
+
+        if leftOverflow < 0 then
+            targetX = currentX + leftOverflow
+        elseif rightOverflow > 0 then
+            targetX = currentX + rightOverflow
+        end
+
+        local maxX = math.max(0, container.CanvasSize.X.Offset - containerSize.X)
+        targetX = math.clamp(targetX, 0, maxX)
+        container.CanvasPosition = Vector2.new(targetX, 0)
+    end)
+end
+
 function UILibrary.new(args)
     args = args or {}
     local self = setmetatable({}, UILibrary)
@@ -984,7 +1027,7 @@ function UILibrary.new(args)
     titleLabel.TextXAlignment = Enum.TextXAlignment.Left
     titleLabel.ZIndex = 3
 
-    self.TabContainer = Instance.new("Frame")
+    self.TabContainer = Instance.new("ScrollingFrame")
     self.TabContainer.Name = "TabContainer"
     self.TabContainer.Parent = self.MainFrame
     self.TabContainer.BackgroundColor3 = Theme.Tab
@@ -992,13 +1035,30 @@ function UILibrary.new(args)
     self.TabContainer.BorderSizePixel = 1
     self.TabContainer.Position = UDim2.new(0, 0, 0, 30)
     self.TabContainer.Size = UDim2.new(1, 0, 0, 35)
+    self.TabContainer.CanvasSize = UDim2.new(0, 0, 0, 0)
+    self.TabContainer.CanvasPosition = Vector2.new(0, 0)
+    self.TabContainer.ScrollBarThickness = args.TabScrollBarThickness or 4
+    self.TabContainer.ScrollBarImageColor3 = Theme.Border
+    self.TabContainer.ScrollingDirection = Enum.ScrollingDirection.X
+    self.TabContainer.AutomaticCanvasSize = Enum.AutomaticSize.None
+    self.TabContainer.BackgroundTransparency = 0
+    self.TabContainer.ClipsDescendants = true
     self.TabContainer.ZIndex = 2
 
     local tabLayout = Instance.new("UIListLayout")
     tabLayout.Parent = self.TabContainer
     tabLayout.FillDirection = Enum.FillDirection.Horizontal
     tabLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    tabLayout.Padding = UDim.new(0, 0)
+    tabLayout.Padding = UDim.new(0, args.TabPadding or 0)
+    self.TabLayout = tabLayout
+
+    tabLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        self:_RefreshTabCanvas()
+    end)
+
+    self.TabContainer:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+        self:_RefreshTabCanvas()
+    end)
 
     self.ContentArea = Instance.new("Frame")
     self.ContentArea.Name = "ContentArea"
@@ -1153,7 +1213,7 @@ function UILibrary:CreateTab(args)
     tab.button.BackgroundColor3 = Theme.Tab
     tab.button.BorderColor3 = Theme.Border
     tab.button.BorderSizePixel = 1
-    tab.button.Size = UDim2.new(0, args.Width or 120, 1, 0)
+    tab.button.Size = UDim2.new(0, args.Width or 120, 1, -(self.TabContainer.ScrollBarThickness or 0))
     tab.button.Font = Enum.Font.Code
     tab.button.Text = name
     tab.button.TextColor3 = Theme.TextDim
@@ -1216,6 +1276,8 @@ function UILibrary:CreateTab(args)
                 break
             end
         end
+        self.library:_RefreshTabCanvas()
+
         if self.library.currentTab == self.name then
             local first = self.library.tabs[1]
             if first then
@@ -1227,6 +1289,7 @@ function UILibrary:CreateTab(args)
     end
 
     table.insert(self.tabs, tab)
+    self:_RefreshTabCanvas()
 
     if #self.tabs == 1 then
         self:SwitchTab(name)
@@ -1236,17 +1299,24 @@ function UILibrary:CreateTab(args)
 end
 
 function UILibrary:SwitchTab(name)
+    local selectedTab = nil
+
     for _, tab in pairs(self.tabs) do
         if tab.name == name then
             tab.content.Visible = true
             tab.button.BackgroundColor3 = Theme.TabActive
             tab.button.TextColor3 = Theme.Text
             self.currentTab = name
+            selectedTab = tab
         else
             tab.content.Visible = false
             tab.button.BackgroundColor3 = Theme.Tab
             tab.button.TextColor3 = Theme.TextDim
         end
+    end
+
+    if selectedTab then
+        self:_ScrollTabIntoView(selectedTab)
     end
 end
 
