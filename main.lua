@@ -681,7 +681,11 @@ function Tab:Dropdown(args)
 
     local function repaintOptions()
         for option, optionButton in pairs(optionButtons) do
-            optionButton.TextColor3 = selected[option] and Theme.Accent or Theme.Text
+            local isSelected = selected[option] == true
+
+            optionButton.TextColor3 = isSelected and Theme.Accent or Theme.Text
+            optionButton.BackgroundColor3 = isSelected and Theme.ElementHover or Theme.Background
+            optionButton.BorderColor3 = isSelected and Theme.Accent or Theme.Border
         end
     end
 
@@ -715,8 +719,8 @@ function Tab:Dropdown(args)
         local optionButton = Instance.new("TextButton")
         optionButton.Name = "Option" .. i
         optionButton.Parent = scrollFrame
-        optionButton.BackgroundColor3 = Theme.Background
-        optionButton.BorderColor3 = Theme.Border
+        optionButton.BackgroundColor3 = selected[option] and Theme.ElementHover or Theme.Background
+        optionButton.BorderColor3 = selected[option] and Theme.Accent or Theme.Border
         optionButton.Size = UDim2.new(1, 0, 0, 23)
         optionButton.Font = Enum.Font.Code
         optionButton.Text = "  " .. option
@@ -987,7 +991,6 @@ function UILibrary:SetFlag(flag, value, noCallback)
 end
 
 function UILibrary:SaveConfig()
-    local writefile = getEnvFunction("writefile")
     if not writefile then
         warn("UILibrary: getgenv().writefile was not found")
         return false
@@ -1011,8 +1014,6 @@ function UILibrary:SaveConfig()
 end
 
 function UILibrary:LoadConfig(applyCallbacks)
-    local readfile = getEnvFunction("readfile")
-    local isfile = getEnvFunction("isfile")
     if not readfile then
         return false
     end
