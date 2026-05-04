@@ -687,7 +687,6 @@ function Tab:Dropdown(args)
 
             optionButton.TextColor3 = isSelected and Theme.Accent or Theme.Text
             optionButton.BackgroundColor3 = isSelected and Theme.ElementHover or Theme.Background
-            optionButton.BorderColor3 = isSelected and Theme.Accent or Theme.Border
         end
     end
 
@@ -722,7 +721,7 @@ function Tab:Dropdown(args)
         optionButton.Name = "Option" .. i
         optionButton.Parent = scrollFrame
         optionButton.BackgroundColor3 = selected[option] and Theme.ElementHover or Theme.Background
-        optionButton.BorderColor3 = selected[option] and Theme.Accent or Theme.Border
+        optionButton.BorderSizePixel = 0
         optionButton.Size = UDim2.new(1, 0, 0, 23)
         optionButton.Font = Enum.Font.Code
         optionButton.Text = "  " .. option
