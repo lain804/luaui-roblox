@@ -39,30 +39,6 @@ local function shallowCopy(t)
     return out
 end
 
-local function valueToText(value)
-    if value == nil then
-        return ""
-    end
-
-    if type(value) == "table" then
-        local parts = {}
-
-        for _, item in ipairs(value) do
-            table.insert(parts, tostring(item))
-        end
-
-        if #parts == 0 then
-            for key, item in pairs(value) do
-                table.insert(parts, tostring(key) .. "=" .. tostring(item))
-            end
-        end
-
-        return table.concat(parts, ", ")
-    end
-
-    return tostring(value)
-end
-
 local Controller = {}
 Controller.__index = Controller
 
@@ -75,8 +51,8 @@ function Controller.new(tab, instance, data)
     self.Parent = instance.Parent
     self.Type = data.Type or instance.Name
     self.Flag = data.Flag
-    self._get = data.Get
-    self._set = data.Set
+    self.Get = data.Get
+    self.Set = data.Set
     self.Save = data.Save
     self.Cleanup = data.Cleanup
     self.OnHide = data.OnHide
@@ -139,38 +115,17 @@ function Controller:Show()
     self.Tab:_RefreshCanvas()
 end
 
-function Controller:SetValue(value, noCallback)
-    if self._set then
-        return self._set(value, noCallback)
-    end
-    return nil
-end
-
 function Controller:Set(value, noCallback)
-    return self:SetValue(value, noCallback)
+    if self.Set then
+        self.Set(value, noCallback)
+    end
 end
 
 function Controller:GetValue()
-    if self._get then
-        return self._get()
+    if self.Get then
+        return self.Get()
     end
     return nil
-end
-
-function Controller:Get()
-    return self:GetValue()
-end
-
-function Controller:SetText(value, noCallback)
-    return self:SetValue(value, noCallback)
-end
-
-function Controller:GetText()
-    return valueToText(self:GetValue())
-end
-
-function Controller:GetInstance()
-    return self.Instance
 end
 
 local Tab = {}
@@ -274,22 +229,16 @@ function Tab:Button(args)
         button.BackgroundColor3 = hovering and Theme.ElementHover or Theme.Element
     end)
 
-    local controller
-
     button.MouseButton1Click:Connect(function()
-        if callback then task.spawn(callback, controller) end
+        if callback then task.spawn(callback) end
     end)
 
-    controller = Controller.new(self, button, {
-        Type = "Button",
-        Get = function() return button.Text end,
-        Set = function(newText)
-            button.Text = valueToText(newText)
-        end
+    local controller = Controller.new(self, button, {
+        Type = "Button"
     })
 
     self:_RefreshCanvas()
-    return controller
+    return button, controller
 end
 
 function Tab:Toggle(args)
@@ -370,7 +319,7 @@ function Tab:Toggle(args)
     end
 
     self:_RefreshCanvas()
-    return controller
+    return frame, function() return state end, controller
 end
 
 function Tab:Slider(args)
@@ -512,12 +461,12 @@ function Tab:Slider(args)
     end
 
     self:_RefreshCanvas()
-    return controller
+    return frame, function() return value end, controller
 end
 
 function Tab:Label(args)
     args = args or {}
-    local text = valueToText(args.Text or "")
+    local text = args.Text or ""
     local height = args.Height or 20
 
     local label = Instance.new("TextLabel")
@@ -536,7 +485,7 @@ function Tab:Label(args)
     local controller = Controller.new(self, label, {
         Type = "Label",
         Set = function(newText)
-            label.Text = valueToText(newText)
+            label.Text = tostring(newText or "")
         end,
         Get = function()
             return label.Text
@@ -544,7 +493,7 @@ function Tab:Label(args)
     })
 
     self:_RefreshCanvas()
-    return controller
+    return label, controller
 end
 
 function Tab:Separator(args)
@@ -571,7 +520,7 @@ function Tab:Separator(args)
     })
 
     self:_RefreshCanvas()
-    return controller
+    return container, controller
 end
 
 function Tab:Dropdown(args)
@@ -599,32 +548,9 @@ function Tab:Dropdown(args)
     end
 
     local selected = {}
-    local selectedOrder = {}
-
-    local function addSelected(option)
-        if not selected[option] then
-            table.insert(selectedOrder, option)
-        end
-        selected[option] = true
-    end
-
-    local function removeSelected(option)
-        selected[option] = nil
-        local index = table.find(selectedOrder, option)
-        if index then
-            table.remove(selectedOrder, index)
-        end
-    end
-
-    local function clearSelected()
-        table.clear(selected)
-        table.clear(selectedOrder)
-    end
-
     for _, def in ipairs(default) do
         if table.find(options, def) then
-            addSelected(def)
-            if not multiSelect then break end
+            selected[def] = true
         end
     end
 
@@ -714,6 +640,7 @@ function Tab:Dropdown(args)
     dropdown.Position = UDim2.new(0, 0, 0, 0)
     dropdown.Size = UDim2.new(0, 0, 0, dropdownHeight)
     dropdown.Visible = false
+    dropdown.ClipsDescendants = true
     dropdown.ZIndex = 50
 
     local scrollFrame = Instance.new("ScrollingFrame")
@@ -724,6 +651,7 @@ function Tab:Dropdown(args)
     scrollFrame.ScrollBarThickness = 6
     scrollFrame.ScrollBarImageColor3 = Theme.Border
     scrollFrame.CanvasSize = UDim2.new(0, 0, 0, math.max(totalHeight, dropdownHeight))
+    scrollFrame.ClipsDescendants = true
     scrollFrame.ZIndex = 51
 
     local layout = Instance.new("UIListLayout")
@@ -734,7 +662,7 @@ function Tab:Dropdown(args)
 
     local function getSelectedTable()
         local list = {}
-        for _, option in ipairs(selectedOrder) do
+        for _, option in ipairs(options) do
             if selected[option] then
                 table.insert(list, option)
             end
@@ -755,8 +683,11 @@ function Tab:Dropdown(args)
 
     local function repaintOptions()
         for option, optionButton in pairs(optionButtons) do
-            optionButton.BackgroundColor3 = selected[option] and Theme.ElementHover or Theme.Background
-            optionButton.TextColor3 = Theme.Text
+            local isSelected = selected[option] == true
+
+            optionButton.TextColor3 = isSelected and Theme.Accent or Theme.Text
+            optionButton.BackgroundColor3 = isSelected and Theme.ElementHover or Theme.Background
+            optionButton.BorderColor3 = isSelected and Theme.Accent or Theme.Border
         end
     end
 
@@ -772,14 +703,14 @@ function Tab:Dropdown(args)
     local closeDropdown
 
     local function setSelected(value, noCallback)
-        clearSelected()
+        table.clear(selected)
         local values = value
         if type(values) ~= "table" then
             values = { values }
         end
         for _, option in ipairs(values) do
             if table.find(options, option) then
-                addSelected(option)
+                selected[option] = true
                 if not multiSelect then break end
             end
         end
@@ -791,11 +722,11 @@ function Tab:Dropdown(args)
         optionButton.Name = "Option" .. i
         optionButton.Parent = scrollFrame
         optionButton.BackgroundColor3 = selected[option] and Theme.ElementHover or Theme.Background
-        optionButton.BorderSizePixel = 0
+        optionButton.BorderColor3 = selected[option] and Theme.Accent or Theme.Border
         optionButton.Size = UDim2.new(1, 0, 0, 23)
         optionButton.Font = Enum.Font.Code
         optionButton.Text = "  " .. option
-        optionButton.TextColor3 = Theme.Text
+        optionButton.TextColor3 = selected[option] and Theme.Accent or Theme.Text
         optionButton.TextSize = args.TextSize or 13
         optionButton.TextXAlignment = Enum.TextXAlignment.Left
         optionButton.AutoButtonColor = false
@@ -804,14 +735,10 @@ function Tab:Dropdown(args)
 
         optionButton.MouseButton1Click:Connect(function()
             if multiSelect then
-                if selected[option] then
-                    removeSelected(option)
-                else
-                    addSelected(option)
-                end
+                selected[option] = not selected[option]
             else
-                clearSelected()
-                addSelected(option)
+                table.clear(selected)
+                selected[option] = true
                 if closeDropdown then
                     closeDropdown()
                 else
@@ -910,49 +837,6 @@ function Tab:Dropdown(args)
     return controller
 end
 
-
-function UILibrary:_RefreshTabCanvas()
-    if not self.TabContainer or not self.TabLayout then return end
-
-    task.defer(function()
-        if not self.TabContainer or not self.TabLayout then return end
-
-        local contentWidth = self.TabLayout.AbsoluteContentSize.X + 2
-        self.TabContainer.CanvasSize = UDim2.new(0, contentWidth, 0, 0)
-    end)
-end
-
-function UILibrary:_ScrollTabIntoView(tab)
-    if not tab or not tab.button or not self.TabContainer then return end
-
-    task.defer(function()
-        if not tab.button or not tab.button.Parent or not self.TabContainer then return end
-
-        local container = self.TabContainer
-        local button = tab.button
-
-        local containerPos = container.AbsolutePosition
-        local containerSize = container.AbsoluteSize
-        local buttonPos = button.AbsolutePosition
-        local buttonSize = button.AbsoluteSize
-        local currentX = container.CanvasPosition.X
-
-        local leftOverflow = buttonPos.X - containerPos.X
-        local rightOverflow = (buttonPos.X + buttonSize.X) - (containerPos.X + containerSize.X)
-        local targetX = currentX
-
-        if leftOverflow < 0 then
-            targetX = currentX + leftOverflow
-        elseif rightOverflow > 0 then
-            targetX = currentX + rightOverflow
-        end
-
-        local maxX = math.max(0, container.CanvasSize.X.Offset - containerSize.X)
-        targetX = math.clamp(targetX, 0, maxX)
-        container.CanvasPosition = Vector2.new(targetX, 0)
-    end)
-end
-
 function UILibrary.new(args)
     args = args or {}
     local self = setmetatable({}, UILibrary)
@@ -963,6 +847,8 @@ function UILibrary.new(args)
     self.ConfigFile = args.ConfigFile or args.ConfigName or "UILibrary_Config.json"
     self.ConfigFolder = args.ConfigFolder
     self.AutoSave = args.AutoSave ~= false
+    self.TabScrollBarThickness = args.TabScrollBarThickness or 4
+    self.TabPadding = args.TabPadding or 0
 
     if self.ConfigFolder then
         local makefolder = getEnvFunction("makefolder")
@@ -1003,7 +889,7 @@ function UILibrary.new(args)
     self.MainFrame.Position = args.Position or UDim2.new(0, 100, 0, 100)
     self.MainFrame.Size = args.Size or UDim2.new(0, 650, 0, 450)
     self.MainFrame.Visible = true
-    self.MainFrame.ClipsDescendants = false
+    self.MainFrame.ClipsDescendants = true
 
     self.TitleBar = Instance.new("Frame")
     self.TitleBar.Name = "TitleBar"
@@ -1035,30 +921,30 @@ function UILibrary.new(args)
     self.TabContainer.BorderSizePixel = 1
     self.TabContainer.Position = UDim2.new(0, 0, 0, 30)
     self.TabContainer.Size = UDim2.new(1, 0, 0, 35)
-    self.TabContainer.CanvasSize = UDim2.new(0, 0, 0, 0)
-    self.TabContainer.CanvasPosition = Vector2.new(0, 0)
-    self.TabContainer.ScrollBarThickness = args.TabScrollBarThickness or 4
-    self.TabContainer.ScrollBarImageColor3 = Theme.Border
-    self.TabContainer.ScrollingDirection = Enum.ScrollingDirection.X
-    self.TabContainer.AutomaticCanvasSize = Enum.AutomaticSize.None
-    self.TabContainer.BackgroundTransparency = 0
     self.TabContainer.ClipsDescendants = true
+    self.TabContainer.Active = true
+    self.TabContainer.ScrollingDirection = Enum.ScrollingDirection.X
+    self.TabContainer.ScrollBarThickness = self.TabScrollBarThickness
+    self.TabContainer.ScrollBarImageColor3 = Theme.Border
+    self.TabContainer.CanvasSize = UDim2.new(0, 0, 0, 0)
+    self.TabContainer.AutomaticCanvasSize = Enum.AutomaticSize.X
     self.TabContainer.ZIndex = 2
 
     local tabLayout = Instance.new("UIListLayout")
     tabLayout.Parent = self.TabContainer
     tabLayout.FillDirection = Enum.FillDirection.Horizontal
     tabLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    tabLayout.Padding = UDim.new(0, args.TabPadding or 0)
-    self.TabLayout = tabLayout
+    tabLayout.Padding = UDim.new(0, self.TabPadding)
 
-    tabLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-        self:_RefreshTabCanvas()
-    end)
+    local function refreshTabCanvas()
+        task.defer(function()
+            if self.TabContainer and tabLayout then
+                self.TabContainer.CanvasSize = UDim2.new(0, tabLayout.AbsoluteContentSize.X + self.TabPadding, 0, 0)
+            end
+        end)
+    end
 
-    self.TabContainer:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
-        self:_RefreshTabCanvas()
-    end)
+    tabLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(refreshTabCanvas)
 
     self.ContentArea = Instance.new("Frame")
     self.ContentArea.Name = "ContentArea"
@@ -1067,7 +953,7 @@ function UILibrary.new(args)
     self.ContentArea.BorderSizePixel = 0
     self.ContentArea.Position = UDim2.new(0, 0, 0, 65)
     self.ContentArea.Size = UDim2.new(1, 0, 1, -65)
-    self.ContentArea.ClipsDescendants = false
+    self.ContentArea.ClipsDescendants = true
     self.ContentArea.ZIndex = 1
 
     self.tabs = {}
@@ -1124,7 +1010,6 @@ function UILibrary:SetFlag(flag, value, noCallback)
 end
 
 function UILibrary:SaveConfig()
-    local writefile = getEnvFunction("writefile")
     if not writefile then
         warn("UILibrary: getgenv().writefile was not found")
         return false
@@ -1148,8 +1033,6 @@ function UILibrary:SaveConfig()
 end
 
 function UILibrary:LoadConfig(applyCallbacks)
-    local readfile = getEnvFunction("readfile")
-    local isfile = getEnvFunction("isfile")
     if not readfile then
         return false
     end
@@ -1213,7 +1096,7 @@ function UILibrary:CreateTab(args)
     tab.button.BackgroundColor3 = Theme.Tab
     tab.button.BorderColor3 = Theme.Border
     tab.button.BorderSizePixel = 1
-    tab.button.Size = UDim2.new(0, args.Width or 120, 1, -(self.TabContainer.ScrollBarThickness or 0))
+    tab.button.Size = UDim2.new(0, args.Width or 120, 1, 0)
     tab.button.Font = Enum.Font.Code
     tab.button.Text = name
     tab.button.TextColor3 = Theme.TextDim
@@ -1232,7 +1115,7 @@ function UILibrary:CreateTab(args)
     tab.content.ScrollBarImageColor3 = Theme.Border
     tab.content.CanvasSize = UDim2.new(0, 0, 0, 0)
     tab.content.Visible = false
-    tab.content.ClipsDescendants = false
+    tab.content.ClipsDescendants = true
     tab.content.ZIndex = 1
 
     local layout = Instance.new("UIListLayout")
@@ -1276,8 +1159,6 @@ function UILibrary:CreateTab(args)
                 break
             end
         end
-        self.library:_RefreshTabCanvas()
-
         if self.library.currentTab == self.name then
             local first = self.library.tabs[1]
             if first then
@@ -1289,7 +1170,6 @@ function UILibrary:CreateTab(args)
     end
 
     table.insert(self.tabs, tab)
-    self:_RefreshTabCanvas()
 
     if #self.tabs == 1 then
         self:SwitchTab(name)
@@ -1299,24 +1179,32 @@ function UILibrary:CreateTab(args)
 end
 
 function UILibrary:SwitchTab(name)
-    local selectedTab = nil
-
     for _, tab in pairs(self.tabs) do
         if tab.name == name then
             tab.content.Visible = true
             tab.button.BackgroundColor3 = Theme.TabActive
             tab.button.TextColor3 = Theme.Text
             self.currentTab = name
-            selectedTab = tab
+
+            task.defer(function()
+                if self.TabContainer and tab.button and tab.button.Parent then
+                    local left = tab.button.AbsolutePosition.X - self.TabContainer.AbsolutePosition.X
+                    local right = left + tab.button.AbsoluteSize.X
+                    local viewWidth = self.TabContainer.AbsoluteSize.X
+                    local canvasX = self.TabContainer.CanvasPosition.X
+
+                    if left < 0 then
+                        self.TabContainer.CanvasPosition = Vector2.new(math.max(canvasX + left, 0), 0)
+                    elseif right > viewWidth then
+                        self.TabContainer.CanvasPosition = Vector2.new(canvasX + (right - viewWidth), 0)
+                    end
+                end
+            end)
         else
             tab.content.Visible = false
             tab.button.BackgroundColor3 = Theme.Tab
             tab.button.TextColor3 = Theme.TextDim
         end
-    end
-
-    if selectedTab then
-        self:_ScrollTabIntoView(selectedTab)
     end
 end
 
