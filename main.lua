@@ -39,6 +39,30 @@ local function shallowCopy(t)
     return out
 end
 
+local function valueToText(value)
+    if value == nil then
+        return ""
+    end
+
+    if type(value) == "table" then
+        local parts = {}
+
+        for _, item in ipairs(value) do
+            table.insert(parts, tostring(item))
+        end
+
+        if #parts == 0 then
+            for key, item in pairs(value) do
+                table.insert(parts, tostring(key) .. "=" .. tostring(item))
+            end
+        end
+
+        return table.concat(parts, ", ")
+    end
+
+    return tostring(value)
+end
+
 local Controller = {}
 Controller.__index = Controller
 
@@ -51,8 +75,8 @@ function Controller.new(tab, instance, data)
     self.Parent = instance.Parent
     self.Type = data.Type or instance.Name
     self.Flag = data.Flag
-    self.Get = data.Get
-    self.Set = data.Set
+    self._get = data.Get
+    self._set = data.Set
     self.Save = data.Save
     self.Cleanup = data.Cleanup
     self.OnHide = data.OnHide
@@ -115,17 +139,38 @@ function Controller:Show()
     self.Tab:_RefreshCanvas()
 end
 
-function Controller:Set(value, noCallback)
-    if self.Set then
-        self.Set(value, noCallback)
+function Controller:SetValue(value, noCallback)
+    if self._set then
+        return self._set(value, noCallback)
     end
+    return nil
+end
+
+function Controller:Set(value, noCallback)
+    return self:SetValue(value, noCallback)
 end
 
 function Controller:GetValue()
-    if self.Get then
-        return self.Get()
+    if self._get then
+        return self._get()
     end
     return nil
+end
+
+function Controller:Get()
+    return self:GetValue()
+end
+
+function Controller:SetText(value, noCallback)
+    return self:SetValue(value, noCallback)
+end
+
+function Controller:GetText()
+    return valueToText(self:GetValue())
+end
+
+function Controller:GetInstance()
+    return self.Instance
 end
 
 local Tab = {}
@@ -229,16 +274,22 @@ function Tab:Button(args)
         button.BackgroundColor3 = hovering and Theme.ElementHover or Theme.Element
     end)
 
+    local controller
+
     button.MouseButton1Click:Connect(function()
-        if callback then task.spawn(callback) end
+        if callback then task.spawn(callback, controller) end
     end)
 
-    local controller = Controller.new(self, button, {
-        Type = "Button"
+    controller = Controller.new(self, button, {
+        Type = "Button",
+        Get = function() return button.Text end,
+        Set = function(newText)
+            button.Text = valueToText(newText)
+        end
     })
 
     self:_RefreshCanvas()
-    return button, controller
+    return controller
 end
 
 function Tab:Toggle(args)
@@ -319,7 +370,7 @@ function Tab:Toggle(args)
     end
 
     self:_RefreshCanvas()
-    return frame, function() return state end, controller
+    return controller
 end
 
 function Tab:Slider(args)
@@ -461,12 +512,12 @@ function Tab:Slider(args)
     end
 
     self:_RefreshCanvas()
-    return frame, function() return value end, controller
+    return controller
 end
 
 function Tab:Label(args)
     args = args or {}
-    local text = args.Text or ""
+    local text = valueToText(args.Text or "")
     local height = args.Height or 20
 
     local label = Instance.new("TextLabel")
@@ -485,7 +536,7 @@ function Tab:Label(args)
     local controller = Controller.new(self, label, {
         Type = "Label",
         Set = function(newText)
-            label.Text = tostring(newText or "")
+            label.Text = valueToText(newText)
         end,
         Get = function()
             return label.Text
@@ -493,7 +544,7 @@ function Tab:Label(args)
     })
 
     self:_RefreshCanvas()
-    return label, controller
+    return controller
 end
 
 function Tab:Separator(args)
@@ -520,7 +571,7 @@ function Tab:Separator(args)
     })
 
     self:_RefreshCanvas()
-    return container, controller
+    return controller
 end
 
 function Tab:Dropdown(args)
@@ -856,9 +907,7 @@ function Tab:Dropdown(args)
     end
 
     self:_RefreshCanvas()
-    return frame, function()
-        return multiSelect and getSelectedTable() or getSelectedTable()[1]
-    end, controller
+    return controller
 end
 
 function UILibrary.new(args)
