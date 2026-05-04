@@ -548,9 +548,32 @@ function Tab:Dropdown(args)
     end
 
     local selected = {}
+    local selectedOrder = {}
+
+    local function addSelected(option)
+        if not selected[option] then
+            table.insert(selectedOrder, option)
+        end
+        selected[option] = true
+    end
+
+    local function removeSelected(option)
+        selected[option] = nil
+        local index = table.find(selectedOrder, option)
+        if index then
+            table.remove(selectedOrder, index)
+        end
+    end
+
+    local function clearSelected()
+        table.clear(selected)
+        table.clear(selectedOrder)
+    end
+
     for _, def in ipairs(default) do
         if table.find(options, def) then
-            selected[def] = true
+            addSelected(def)
+            if not multiSelect then break end
         end
     end
 
@@ -660,7 +683,7 @@ function Tab:Dropdown(args)
 
     local function getSelectedTable()
         local list = {}
-        for _, option in ipairs(options) do
+        for _, option in ipairs(selectedOrder) do
             if selected[option] then
                 table.insert(list, option)
             end
@@ -681,11 +704,8 @@ function Tab:Dropdown(args)
 
     local function repaintOptions()
         for option, optionButton in pairs(optionButtons) do
-            local isSelected = selected[option] == true
-
-            optionButton.TextColor3 = isSelected and Theme.Accent or Theme.Text
-            optionButton.BackgroundColor3 = isSelected and Theme.ElementHover or Theme.Background
-            optionButton.BorderColor3 = isSelected and Theme.Accent or Theme.Border
+            optionButton.BackgroundColor3 = selected[option] and Theme.ElementHover or Theme.Background
+            optionButton.TextColor3 = Theme.Text
         end
     end
 
@@ -701,14 +721,14 @@ function Tab:Dropdown(args)
     local closeDropdown
 
     local function setSelected(value, noCallback)
-        table.clear(selected)
+        clearSelected()
         local values = value
         if type(values) ~= "table" then
             values = { values }
         end
         for _, option in ipairs(values) do
             if table.find(options, option) then
-                selected[option] = true
+                addSelected(option)
                 if not multiSelect then break end
             end
         end
@@ -720,11 +740,11 @@ function Tab:Dropdown(args)
         optionButton.Name = "Option" .. i
         optionButton.Parent = scrollFrame
         optionButton.BackgroundColor3 = selected[option] and Theme.ElementHover or Theme.Background
-        optionButton.BorderColor3 = selected[option] and Theme.Accent or Theme.Border
+        optionButton.BorderSizePixel = 0
         optionButton.Size = UDim2.new(1, 0, 0, 23)
         optionButton.Font = Enum.Font.Code
         optionButton.Text = "  " .. option
-        optionButton.TextColor3 = selected[option] and Theme.Accent or Theme.Text
+        optionButton.TextColor3 = Theme.Text
         optionButton.TextSize = args.TextSize or 13
         optionButton.TextXAlignment = Enum.TextXAlignment.Left
         optionButton.AutoButtonColor = false
@@ -733,10 +753,14 @@ function Tab:Dropdown(args)
 
         optionButton.MouseButton1Click:Connect(function()
             if multiSelect then
-                selected[option] = not selected[option]
+                if selected[option] then
+                    removeSelected(option)
+                else
+                    addSelected(option)
+                end
             else
-                table.clear(selected)
-                selected[option] = true
+                clearSelected()
+                addSelected(option)
                 if closeDropdown then
                     closeDropdown()
                 else
@@ -991,6 +1015,7 @@ function UILibrary:SetFlag(flag, value, noCallback)
 end
 
 function UILibrary:SaveConfig()
+    local writefile = getEnvFunction("writefile")
     if not writefile then
         warn("UILibrary: getgenv().writefile was not found")
         return false
@@ -1014,6 +1039,8 @@ function UILibrary:SaveConfig()
 end
 
 function UILibrary:LoadConfig(applyCallbacks)
+    local readfile = getEnvFunction("readfile")
+    local isfile = getEnvFunction("isfile")
     if not readfile then
         return false
     end
