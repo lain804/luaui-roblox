@@ -1236,4 +1236,92 @@ function UILibrary:SwitchTab(name)
     end
 end
 
+function Tab:Textbox(args)
+    args = args or {}
+    local labelText = args.Text or "TextBox"
+    local callback = args.Callback
+    local flag = args.Flag or args.Save
+
+    local default = args.Default or ""
+    default = self:_GetSaved(flag, default)
+    default = tostring(default)
+
+    local frame = Instance.new("Frame")
+    frame.Name = "Textbox"
+    frame.Parent = self.content
+    frame.BackgroundColor3 = Theme.Element
+    frame.BorderColor3 = Theme.Border
+    frame.BorderSizePixel = 1
+    frame.Size = UDim2.new(0.94, 0, 0, args.Height or 30)
+    frame.AnchorPoint = Vector2.new(0.5, 0)
+    frame.Position = UDim2.new(0.5, 0, 0, 0)
+
+    local label = Instance.new("TextLabel")
+    label.Parent = frame
+    label.BackgroundTransparency = 1
+    label.Position = UDim2.new(0, 10, 0, 0)
+    label.Size = UDim2.new(0.37, -10, 1, 0)
+    label.Font = Enum.Font.Code
+    label.Text = labelText
+    label.TextColor3 = Theme.Text
+    label.TextSize = args.TextSize or 13
+    label.TextXAlignment = Enum.TextXAlignment.Left
+
+    local box = Instance.new("TextBox")
+    box.Parent = frame
+    box.BackgroundColor3 = Theme.Background
+    box.BorderColor3 = Theme.Border
+    box.BorderSizePixel = 1
+    box.AnchorPoint = Vector2.new(1, 0)
+    box.Position = UDim2.new(1, -4, 0, 4)
+    box.Size = UDim2.new(0.55, -4, 1, -8)
+    box.Font = Enum.Font.Code
+    box.Text = default
+    box.PlaceholderText = tostring(args.Placeholder or "")
+    box.TextColor3 = Theme.Text
+    box.TextSize = args.TextSize or 13
+    box.TextXAlignment = Enum.TextXAlignment.Left
+    box.ClearTextOnFocus = false
+
+    box.Focused:Connect(function()
+        frame.BackgroundColor3 = Theme.ElementHover
+    end)
+
+    box.FocusLost:Connect(function(enterPressed)
+        frame.BackgroundColor3 = Theme.Element
+        local newText = box.Text or ""
+        self:_SaveFlag(flag, newText)
+        if callback then task.spawn(callback, newText, enterPressed) end
+    end)
+
+    frame.MouseEnter:Connect(function()
+        frame.BackgroundColor3 = Theme.ElementHover
+    end)
+
+    frame.MouseLeave:Connect(function()
+        frame.BackgroundColor3 = Theme.Element
+    end)
+
+    local controller = Controller.new(self, frame, {
+        Type = "Textbox",
+        Flag = flag,
+        Get = function() return box.Text end,
+        Set = function(val, noCallback)
+            box.Text = tostring(val or "")
+            self:_SaveFlag(flag, box.Text)
+            if callback and not noCallback then
+                task.spawn(callback, box.Text, false)
+            end
+        end
+    })
+    self:_BindFlag(flag, controller)
+
+    if flag and self.library.loadedFlags[flag] ~= nil and args.CallOnLoad ~= false and callback then
+        task.spawn(callback, box.Text)
+    end
+
+    self:_RefreshCanvas()
+    return frame, function() return box.Text end, controller
+end
+
 return UILibrary
