@@ -1152,7 +1152,7 @@ function UILibrary:CreateTab(args)
     tab.button.TextColor3 = Theme.TextDim
     tab.button.TextSize = args.TextSize or 13
     tab.button.AutoButtonColor = false
-    tab.button.LayoutOrder = #self.tabs + 1
+    tab.button.LayoutOrder = (self.tabs and #self.tabs or 0) + 1
     tab.button.ZIndex = 3
 
     tab.content = Instance.new("ScrollingFrame")
@@ -1221,7 +1221,7 @@ function UILibrary:CreateTab(args)
 
     table.insert(self.tabs, tab)
 
-    if #self.tabs == 1 then
+    if (self.tabs and #self.tabs or 0) == 1 then
         self:SwitchTab(name)
     end
 
