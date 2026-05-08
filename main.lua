@@ -40,7 +40,24 @@ local function shallowCopy(t)
 end
 
 local Controller = {}
-Controller.__index = Controller
+
+Controller.__index = function(tbl, key)
+    -- prefer Controller methods/properties first
+    local v = rawget(Controller, key)
+    if v ~= nil then return v end
+
+    -- fallback to underlying GUI instance
+    local inst = rawget(tbl, "Instance")
+    if not inst then return nil end
+
+    local instVal = inst[key]
+    if type(instVal) == "function" then
+        return function(self, ...)
+            return instVal(inst, ...)
+        end
+    end
+    return instVal
+end
 
 function Controller.new(tab, instance, data)
     data = data or {}
@@ -51,8 +68,8 @@ function Controller.new(tab, instance, data)
     self.Parent = instance.Parent
     self.Type = data.Type or instance.Name
     self.Flag = data.Flag
-    self.Get = data.Get
-    self.Set = data.Set
+    self._getFn = data.Get
+    self._setFn = data.Set
     self.Save = data.Save
     self.Cleanup = data.Cleanup
     self.OnHide = data.OnHide
@@ -116,14 +133,19 @@ function Controller:Show()
 end
 
 function Controller:Set(value, noCallback)
-    if self.Set then
-        self.Set(value, noCallback)
+    if self._setFn then
+        pcall(self._setFn, value, noCallback)
     end
 end
 
+function Controller:SetValue(value, noCallback)
+    return Controller.Set(self, value, noCallback)
+end
+
 function Controller:GetValue()
-    if self.Get then
-        return self.Get()
+    if self._getFn then
+        local ok, res = pcall(self._getFn)
+        if ok then return res end
     end
     return nil
 end
@@ -238,7 +260,7 @@ function Tab:Button(args)
     })
 
     self:_RefreshCanvas()
-    return button, controller
+    return controller
 end
 
 function Tab:Toggle(args)
@@ -319,7 +341,7 @@ function Tab:Toggle(args)
     end
 
     self:_RefreshCanvas()
-    return frame, function() return state end, controller
+    return controller
 end
 
 function Tab:Slider(args)
@@ -461,7 +483,7 @@ function Tab:Slider(args)
     end
 
     self:_RefreshCanvas()
-    return frame, function() return value end, controller
+    return controller
 end
 
 function Tab:Label(args)
@@ -493,7 +515,7 @@ function Tab:Label(args)
     })
 
     self:_RefreshCanvas()
-    return label, controller
+    return controller
 end
 
 function Tab:Separator(args)
@@ -520,7 +542,7 @@ function Tab:Separator(args)
     })
 
     self:_RefreshCanvas()
-    return container, controller
+    return controller
 end
 
 function Tab:Dropdown(args)
@@ -1321,7 +1343,7 @@ function Tab:Textbox(args)
     end
 
     self:_RefreshCanvas()
-    return frame, function() return box.Text end, controller
+    return controller
 end
 
 return UILibrary
