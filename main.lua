@@ -39,41 +39,24 @@ local function shallowCopy(t)
     return out
 end
 
-local Controller = {}
+local Element = {}
+Element.__index = Element
 
-Controller.__index = function(tbl, key)
-    -- prefer Controller methods/properties first
-    local v = rawget(Controller, key)
-    if v ~= nil then return v end
-
-    -- fallback to underlying GUI instance
-    local inst = rawget(tbl, "Instance")
-    if not inst then return nil end
-
-    local instVal = inst[key]
-    if type(instVal) == "function" then
-        return function(self, ...)
-            return instVal(inst, ...)
-        end
-    end
-    return instVal
-end
-
-function Controller.new(tab, instance, data)
+function Element.new(tab, instance, data)
     data = data or {}
-    local self = setmetatable({}, Controller)
+
+    local self = setmetatable({}, Element)
     self.Tab = tab
     self.Library = tab.library
     self.Instance = instance
     self.Parent = instance.Parent
     self.Type = data.Type or instance.Name
     self.Flag = data.Flag
-    self._getFn = data.Get
-    self._setFn = data.Set
-    self.Save = data.Save
-    self.Cleanup = data.Cleanup
-    self.OnHide = data.OnHide
-    self.OnShow = data.OnShow
+    self._getValue = data.GetValue or data.Get
+    self._setValue = data.SetValue or data.Set
+    self._cleanup = data.Cleanup
+    self._onHide = data.OnHide
+    self._onShow = data.OnShow
     self.Destroyed = false
     self.Hidden = false
 
@@ -81,16 +64,16 @@ function Controller.new(tab, instance, data)
     return self
 end
 
-function Controller:Remove()
+function Element:Remove()
     if self.Destroyed then return end
     self.Destroyed = true
 
-    if self.Flag and self.Library.controllers[self.Flag] == self then
-        self.Library.controllers[self.Flag] = nil
+    if self.Flag and self.Library.elementsByFlag[self.Flag] == self then
+        self.Library.elementsByFlag[self.Flag] = nil
     end
 
-    if self.Cleanup then
-        pcall(self.Cleanup)
+    if self._cleanup then
+        pcall(self._cleanup)
     end
 
     if self.Instance then
@@ -107,47 +90,50 @@ function Controller:Remove()
     self.Tab:_RefreshCanvas()
 end
 
-function Controller:Destroy()
+function Element:Destroy()
     self:Remove()
 end
 
-function Controller:Hide()
+function Element:Hide()
     if self.Destroyed or self.Hidden then return end
     self.Hidden = true
-    if self.OnHide then
-        pcall(self.OnHide)
+    if self._onHide then
+        pcall(self._onHide)
     end
     self.Parent = self.Instance.Parent
     self.Instance.Parent = nil
     self.Tab:_RefreshCanvas()
 end
 
-function Controller:Show()
+function Element:Show()
     if self.Destroyed or not self.Hidden then return end
     self.Hidden = false
     self.Instance.Parent = self.Parent or self.Tab.content
-    if self.OnShow then
-        pcall(self.OnShow)
+    if self._onShow then
+        pcall(self._onShow)
     end
     self.Tab:_RefreshCanvas()
 end
 
-function Controller:Set(value, noCallback)
-    if self._setFn then
-        pcall(self._setFn, value, noCallback)
+function Element:SetValue(value, noCallback)
+    if self._setValue then
+        self._setValue(value, noCallback)
     end
 end
 
-function Controller:SetValue(value, noCallback)
-    return Controller.Set(self, value, noCallback)
-end
-
-function Controller:GetValue()
-    if self._getFn then
-        local ok, res = pcall(self._getFn)
-        if ok then return res end
+function Element:GetValue()
+    if self._getValue then
+        return self._getValue()
     end
     return nil
+end
+
+function Element:Set(value, noCallback)
+    self:SetValue(value, noCallback)
+end
+
+function Element:Get()
+    return self:GetValue()
 end
 
 local Tab = {}
@@ -190,9 +176,9 @@ function Tab:Show(target)
     end
 end
 
-function Tab:_BindFlag(flag, controller)
+function Tab:_BindFlag(flag, element)
     if flag then
-        self.library.controllers[flag] = controller
+        self.library.elementsByFlag[flag] = element
     end
 end
 
@@ -255,12 +241,18 @@ function Tab:Button(args)
         if callback then task.spawn(callback) end
     end)
 
-    local controller = Controller.new(self, button, {
-        Type = "Button"
+    local element = Element.new(self, button, {
+        Type = "Button",
+        GetValue = function()
+            return button.Text
+        end,
+        SetValue = function(newText)
+            button.Text = tostring(newText or text)
+        end
     })
 
     self:_RefreshCanvas()
-    return controller
+    return element
 end
 
 function Tab:Toggle(args)
@@ -328,20 +320,20 @@ function Tab:Toggle(args)
         setState(not state)
     end)
 
-    local controller = Controller.new(self, frame, {
+    local element = Element.new(self, frame, {
         Type = "Toggle",
         Flag = flag,
-        Get = function() return state end,
-        Set = setState
+        GetValue = function() return state end,
+        SetValue = setState
     })
-    self:_BindFlag(flag, controller)
+    self:_BindFlag(flag, element)
 
     if flag and self.library.loadedFlags[flag] ~= nil and args.CallOnLoad ~= false and callback then
         task.spawn(callback, state)
     end
 
     self:_RefreshCanvas()
-    return controller
+    return element
 end
 
 function Tab:Slider(args)
@@ -470,20 +462,20 @@ function Tab:Slider(args)
 
     render()
 
-    local controller = Controller.new(self, frame, {
+    local element = Element.new(self, frame, {
         Type = "Slider",
         Flag = flag,
-        Get = function() return value end,
-        Set = setValue
+        GetValue = function() return value end,
+        SetValue = setValue
     })
-    self:_BindFlag(flag, controller)
+    self:_BindFlag(flag, element)
 
     if flag and self.library.loadedFlags[flag] ~= nil and args.CallOnLoad ~= false and callback then
         task.spawn(callback, value)
     end
 
     self:_RefreshCanvas()
-    return controller
+    return element
 end
 
 function Tab:Label(args)
@@ -504,18 +496,18 @@ function Tab:Label(args)
     label.TextSize = args.TextSize or 12
     label.TextXAlignment = args.TextXAlignment or Enum.TextXAlignment.Left
 
-    local controller = Controller.new(self, label, {
+    local element = Element.new(self, label, {
         Type = "Label",
-        Set = function(newText)
+        SetValue = function(newText)
             label.Text = tostring(newText or "")
         end,
-        Get = function()
+        GetValue = function()
             return label.Text
         end
     })
 
     self:_RefreshCanvas()
-    return controller
+    return element
 end
 
 function Tab:Separator(args)
@@ -537,12 +529,17 @@ function Tab:Separator(args)
     separator.Size = UDim2.new(1, 0, 0, 1)
     separator.AnchorPoint = Vector2.new(0, 0.5)
 
-    local controller = Controller.new(self, container, {
-        Type = "Separator"
+    local element = Element.new(self, container, {
+        Type = "Separator",
+        SetValue = function()
+        end,
+        GetValue = function()
+            return nil
+        end
     })
 
     self:_RefreshCanvas()
-    return controller
+    return element
 end
 
 function Tab:Dropdown(args)
@@ -862,13 +859,13 @@ function Tab:Dropdown(args)
 
     updateDisplay(true)
 
-    local controller = Controller.new(self, frame, {
+    local element = Element.new(self, frame, {
         Type = "Dropdown",
         Flag = flag,
-        Get = function()
+        GetValue = function()
             return multiSelect and getSelectedTable() or getSelectedTable()[1]
         end,
-        Set = setSelected,
+        SetValue = setSelected,
         Cleanup = function()
             closeDropdown()
             if overlay then
@@ -877,14 +874,14 @@ function Tab:Dropdown(args)
         end,
         OnHide = closeDropdown
     })
-    self:_BindFlag(flag, controller)
+    self:_BindFlag(flag, element)
 
     if flag and self.library.loadedFlags[flag] ~= nil and args.CallOnLoad ~= false and callback then
         task.spawn(callback, multiSelect and getSelectedTable() or getSelectedTable()[1])
     end
 
     self:_RefreshCanvas()
-    return controller
+    return element
 end
 
 function UILibrary.new(args)
@@ -893,7 +890,7 @@ function UILibrary.new(args)
 
     self.flags = {}
     self.loadedFlags = {}
-    self.controllers = {}
+    self.elementsByFlag = {}
     self.ConfigFile = args.ConfigFile or args.ConfigName or "UILibrary_Config.json"
     self.ConfigFolder = args.ConfigFolder
     self.AutoSave = args.AutoSave ~= false
@@ -1050,9 +1047,9 @@ end
 
 function UILibrary:SetFlag(flag, value, noCallback)
     self.flags[flag] = value
-    local controller = self.controllers[flag]
-    if controller and controller.Set then
-        controller:Set(value, noCallback)
+    local element = self.elementsByFlag[flag]
+    if element and element.SetValue then
+        element:SetValue(value, noCallback)
     end
     if self.AutoSave then
         self:SaveConfig()
@@ -1111,9 +1108,9 @@ function UILibrary:LoadConfig(applyCallbacks)
 
     if applyCallbacks then
         for flag, value in pairs(decoded) do
-            local controller = self.controllers[flag]
-            if controller and controller.Set then
-                controller:Set(value, false)
+            local element = self.elementsByFlag[flag]
+            if element and element.SetValue then
+                element:SetValue(value, false)
             end
         end
     end
@@ -1152,7 +1149,7 @@ function UILibrary:CreateTab(args)
     tab.button.TextColor3 = Theme.TextDim
     tab.button.TextSize = args.TextSize or 13
     tab.button.AutoButtonColor = false
-    tab.button.LayoutOrder = (self.tabs and #self.tabs or 0) + 1
+    tab.button.LayoutOrder = #self.tabs + 1
     tab.button.ZIndex = 3
 
     tab.content = Instance.new("ScrollingFrame")
@@ -1221,7 +1218,7 @@ function UILibrary:CreateTab(args)
 
     table.insert(self.tabs, tab)
 
-    if (self.tabs and #self.tabs or 0) == 1 then
+    if #self.tabs == 1 then
         self:SwitchTab(name)
     end
 
@@ -1324,11 +1321,11 @@ function Tab:Textbox(args)
         frame.BackgroundColor3 = Theme.Element
     end)
 
-    local controller = Controller.new(self, frame, {
+    local element = Element.new(self, frame, {
         Type = "Textbox",
         Flag = flag,
-        Get = function() return box.Text end,
-        Set = function(val, noCallback)
+        GetValue = function() return box.Text end,
+        SetValue = function(val, noCallback)
             box.Text = tostring(val or "")
             self:_SaveFlag(flag, box.Text)
             if callback and not noCallback then
@@ -1336,14 +1333,14 @@ function Tab:Textbox(args)
             end
         end
     })
-    self:_BindFlag(flag, controller)
+    self:_BindFlag(flag, element)
 
     if flag and self.library.loadedFlags[flag] ~= nil and args.CallOnLoad ~= false and callback then
         task.spawn(callback, box.Text)
     end
 
     self:_RefreshCanvas()
-    return controller
+    return element
 end
 
 return UILibrary
