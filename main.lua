@@ -57,6 +57,12 @@ function Element.new(tab, instance, data)
     self._cleanup = data.Cleanup
     self._onHide = data.OnHide
     self._onShow = data.OnShow
+    self.LayoutOrder = data.LayoutOrder or tab:_NextLayoutOrder()
+    pcall(function()
+        if self.Instance then
+            self.Instance.LayoutOrder = self.LayoutOrder
+        end
+    end)
     self.Destroyed = false
     self.Hidden = false
 
@@ -138,6 +144,11 @@ end
 
 local Tab = {}
 Tab.__index = Tab
+
+function Tab:_NextLayoutOrder()
+    self._layoutOrder = (self._layoutOrder or 0) + 1
+    return self._layoutOrder
+end
 
 function Tab:_RefreshCanvas()
     if not self.content or not self.layout then return end
@@ -610,11 +621,24 @@ function Tab:Dropdown(args)
     button.Position = UDim2.new(1, -4, 0, 4)
     button.Size = UDim2.new(0.55, -4, 1, -8)
     button.Font = Enum.Font.Code
+    button.Text = ""
     button.TextColor3 = Theme.Text
     button.TextSize = args.TextSize or 13
     button.TextXAlignment = Enum.TextXAlignment.Left
     button.AutoButtonColor = false
     button.ZIndex = 6
+
+    local selectedLabel = Instance.new("TextLabel")
+    selectedLabel.Parent = button
+    selectedLabel.BackgroundTransparency = 1
+    selectedLabel.Position = UDim2.new(0, 6, 0, 0)
+    selectedLabel.Size = UDim2.new(1, -26, 1, 0)
+    selectedLabel.Font = Enum.Font.Code
+    selectedLabel.Text = ""
+    selectedLabel.TextColor3 = Theme.Text
+    selectedLabel.TextSize = args.TextSize or 13
+    selectedLabel.TextXAlignment = Enum.TextXAlignment.Left
+    selectedLabel.ZIndex = 7
 
     local arrow = Instance.new("TextLabel")
     arrow.Parent = button
@@ -721,7 +745,7 @@ function Tab:Dropdown(args)
     end
 
     local function updateDisplay(noCallback)
-        button.Text = "  " .. getSelectedText()
+        selectedLabel.Text = getSelectedText()
         repaintOptions()
         self:_SaveFlag(flag, multiSelect and getSelectedTable() or getSelectedTable()[1])
         if callback and not noCallback then
@@ -758,7 +782,7 @@ function Tab:Dropdown(args)
         optionButton.BorderSizePixel = 0
         optionButton.Size = UDim2.new(1, 0, 0, 23)
         optionButton.Font = Enum.Font.Code
-        optionButton.Text = "  " .. option
+        optionButton.Text = " ".. option
         optionButton.TextColor3 = selected[option] and Theme.Accent or Theme.Text
         optionButton.TextSize = args.TextSize or 13
         optionButton.TextXAlignment = Enum.TextXAlignment.Left
@@ -1134,7 +1158,8 @@ function UILibrary:CreateTab(args)
         button = nil,
         content = nil,
         elements = {},
-        layout = nil
+        layout = nil,
+        _layoutOrder = 0
     }, Tab)
 
     tab.button = Instance.new("TextButton")
@@ -1286,14 +1311,22 @@ function Tab:Textbox(args)
     label.TextSize = args.TextSize or 13
     label.TextXAlignment = Enum.TextXAlignment.Left
 
+    local boxFrame = Instance.new("Frame")
+    boxFrame.Name = "TextboxInput"
+    boxFrame.Parent = frame
+    boxFrame.BackgroundColor3 = Theme.Background
+    boxFrame.BorderColor3 = Theme.Border
+    boxFrame.BorderSizePixel = 1
+    boxFrame.AnchorPoint = Vector2.new(1, 0)
+    boxFrame.Position = UDim2.new(1, -4, 0, 4)
+    boxFrame.Size = UDim2.new(0.55, -4, 1, -8)
+
     local box = Instance.new("TextBox")
-    box.Parent = frame
-    box.BackgroundColor3 = Theme.Background
-    box.BorderColor3 = Theme.Border
-    box.BorderSizePixel = 1
-    box.AnchorPoint = Vector2.new(1, 0)
-    box.Position = UDim2.new(1, -4, 0, 4)
-    box.Size = UDim2.new(0.55, -4, 1, -8)
+    box.Parent = boxFrame
+    box.BackgroundTransparency = 1
+    box.BorderSizePixel = 0
+    box.Position = UDim2.new(0, 6, 0, 0)
+    box.Size = UDim2.new(1, -26, 1, 0)
     box.Font = Enum.Font.Code
     box.Text = default
     box.PlaceholderText = tostring(args.Placeholder or "")
